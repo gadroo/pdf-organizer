@@ -1,0 +1,168 @@
+
+{
+  "document_types": {
+    "loan_agreement": {
+      "name": "IREDA Loan Agreement",
+      "sections": [
+        {
+          "name": "cover_page",
+          "priority": 1,
+          "weight": 2.0,
+          "indicators": ["loan agreement", "dated", "between", "borrower", "lender", "ireda", "limited"],
+          "required_any": ["loan agreement", "between"],
+          "boost_patterns": ["loan\\s+agreement.*dated", "between.*limited.*ireda", "m/s.*limited.*borrower"]
+        },
+        {
+          "name": "loan_summary",
+          "priority": 2,
+          "weight": 1.8,
+          "indicators": ["project no", "borrower", "details of project", "loan amount", "security", "installation", "rs", "lakhs"],
+          "required_any": ["loan amount", "project no", "borrower"],
+          "boost_patterns": ["loan\\s+amount.*rs", "project\\s+no", "details\\s+of\\s+project"]
+        },
+        {
+          "name": "definitions",
+          "priority": 3,
+          "weight": 1.5,
+          "indicators": ["article - i", "article-i", "definitions", "general conditions", "financing plan"],
+          "required_any": ["definitions", "article"],
+          "boost_patterns": ["article\\s*-?\\s*i", "definitions.*general\\s+conditions", "^\\s*-2-"]
+        },
+        {
+          "name": "loan_terms",
+          "priority": 4,
+          "weight": 1.5,
+          "indicators": ["article - ii", "article-ii", "the loan", "amount and terms", "interest", "rebates"],
+          "required_any": ["the loan", "amount.*terms", "article.*ii"],
+          "boost_patterns": ["article\\s*-?\\s*ii", "amount\\s+and\\s+terms", "^\\s*-3-"]
+        },
+        {
+          "name": "security",
+          "priority": 5,
+          "weight": 1.3,
+          "indicators": ["article - iii", "article-iii", "security", "security for the loan", "guarantee"],
+          "required_any": ["security", "article.*iii"],
+          "boost_patterns": ["article\\s*-?\\s*iii", "security\\s+for\\s+the\\s+loan", "^\\s*-6-"]
+        },
+        {
+          "name": "appointment",
+          "priority": 6,
+          "weight": 1.2,
+          "indicators": ["article - iv", "article-iv", "appointment", "nominee directors", "ireda shall be entitled"],
+          "required_any": ["appointment", "nominee", "article.*iv"],
+          "boost_patterns": ["article\\s*-?\\s*iv", "appointment.*nominee", "^\\s*-7-"]
+        },
+        {
+          "name": "special_conditions",
+          "priority": 7,
+          "weight": 1.2,
+          "indicators": ["article - v", "article-v", "special conditions", "schedule vi"],
+          "required_any": ["special conditions", "article.*v"],
+          "boost_patterns": ["article\\s*-?\\s*v", "special\\s+conditions", "^\\s*-8-"]
+        },
+        {
+          "name": "effective_date",
+          "priority": 8,
+          "weight": 1.1,
+          "indicators": ["article - vi", "article-vi", "effective date", "disbursement", "repayment"],
+          "required_any": ["effective date", "disbursement", "article.*vi"],
+          "boost_patterns": ["article\\s*-?\\s*vi", "effective\\s+date", "^\\s*-9-"]
+        },
+        {
+          "name": "detailed_conditions",
+          "priority": 9,
+          "weight": 1.0,
+          "indicators": ["borrower agrees", "borrower shall", "borrower undertakes", "ireda", "conditions applicable"],
+          "required_any": ["borrower agrees", "borrower shall"],
+          "boost_patterns": ["borrower\\s+(agrees|shall|undertakes)", "conditions\\s+applicable", "^\\s*-1[6-9]-"]
+        },
+        {
+          "name": "schedules",
+          "priority": 10,
+          "weight": 1.0,
+          "indicators": ["schedule", "particulars of loan", "financing plan", "amortisation", "project cost"],
+          "required_any": ["schedule", "particulars"],
+          "boost_patterns": ["schedule\\s+[ivx]+", "particulars\\s+of\\s+loan", "^\\s*-1[0-5]-"]
+        },
+        {
+          "name": "signatures",
+          "priority": 11,
+          "weight": 1.5,
+          "indicators": ["witness whereof", "common seal", "signed and delivered", "authorised official", "ireda"],
+          "required_any": ["witness whereof", "common seal", "signed"],
+          "boost_patterns": ["witness\\s+whereof", "common\\s+seal", "signed\\s+and\\s+delivered", "^\\s*-2[0-5]-"]
+        }
+      ]
+    },
+    "mortgage": {
+      "name": "Mortgage Application",
+      "sections": [
+        {
+          "name": "application_header",
+          "priority": 1,
+          "weight": 1.0,
+          "indicators": ["mortgage loan application", "loan application", "application date", "loan amount requested"],
+          "required_any": ["application", "loan"],
+          "boost_patterns": ["^(mortgage|loan)\\s+(application|request)"]
+        },
+        {
+          "name": "borrower_info", 
+          "priority": 2,
+          "weight": 1.0,
+          "indicators": ["borrower information", "primary borrower", "social security", "date of birth"],
+          "required_any": ["borrower", "ssn", "social security"],
+          "boost_patterns": ["borrower.*information", "personal.*details"]
+        },
+        {
+          "name": "employment",
+          "priority": 3,
+          "weight": 0.9,
+          "indicators": ["employment information", "employer name", "monthly income", "years employed"],
+          "required_any": ["employment", "employer", "income"],
+          "boost_patterns": ["employment.*verification", "income.*statement"]
+        },
+        {
+          "name": "property",
+          "priority": 4,
+          "weight": 0.8,
+          "indicators": ["property information", "subject property", "property address", "property type"],
+          "required_any": ["property", "address"],
+          "boost_patterns": ["property.*details", "subject.*property"]
+        },
+        {
+          "name": "signatures",
+          "priority": 10,
+          "weight": 1.0,
+          "indicators": ["signature", "borrower signature", "date signed", "acknowledgment"],
+          "required_any": ["signature", "signed", "acknowledge"],
+          "boost_patterns": [".*signature.*", "date.*signed", "_+\\s*date"]
+        }
+      ]
+    }
+  },
+  "general_patterns": {
+    "first_page_indicators": [
+      "loan agreement", "dated", "between", "title", "header", "application", "report date", "cover"
+    ],
+    "last_page_indicators": [
+      "signature", "acknowledgment", "certification", "date signed", "witness whereof", "common seal"
+    ],
+    "continuation_patterns": ["continued from", "see page", "page \\d+ of \\d+"],
+    "section_break_patterns": ["^[A-Z][A-Z\\s]+$", "^\\d+\\.", "^[IVX]+\\.", "SECTION", "ARTICLE", "SCHEDULE"],
+    "page_number_patterns": [
+      "^\\s*-\\s*(\\d+)\\s*-\\s*$",
+      "-\\s*(\\d+)\\s*-",
+      "—\\s*(\\d+)\\s*—",
+      "–\\s*(\\d+)\\s*–",
+      "page\\s+(\\d+)",
+      "(\\d+)\\s+of\\s+\\d+",
+      "^\\s*(\\d+)\\s*$",
+      "p\\.?\\s*(\\d+)"
+    ]
+  },
+  "confidence_thresholds": {
+    "high": 0.8,
+    "medium": 0.6,
+    "low": 0.4
+  }
+}
