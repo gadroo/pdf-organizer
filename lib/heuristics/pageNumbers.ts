@@ -14,6 +14,7 @@ import { detectContinuationHints } from './continuationDetection';
 import { analyzeStructuralAnchors } from './structuralAnchors';
 import { resolveOrphanPlacements } from './gapResolver';
 import { detectExplicitPageNumbers } from './pageNumberDetection';
+import { createLogger } from '../logging';
 
 interface NumberSequenceStats {
   coverage: number;
@@ -40,6 +41,7 @@ export class PageNumberStrategy implements BaseOrderingStrategy {
   readonly threshold = 0.8;
   private config: string[] = [];
   private static readonly GAP_LOG_PREFIX = '[GapResolver]';
+  private logger = createLogger('PageNumberStrategy', { structured: false });
   private static readonly FALLBACK_PATTERN_POOL = [
     '-(\\d+)-',
     '—(\\d+)—',
@@ -97,19 +99,23 @@ export class PageNumberStrategy implements BaseOrderingStrategy {
   async attemptOrdering(pageContents: PageContent[]): Promise<OrderingResult> {
     const totalPages = pageContents.length;
 
-    console.log(
-      `\nTesting page number detection with ${this.config.length} page-number patterns...`,
-    );
+    this.logger.section('Page number detection');
+    this.logger.info('detection_start', {
+      patternCount: this.config.length,
+      totalPages,
+    });
 
     const { pageNumbers, patternMatches } = detectExplicitPageNumbers(
       pageContents,
       this.buildPatternList(),
-      (message) => console.log(message),
+      (message) => this.logger.debug('detection_trace', { message }),
     );
 
-    console.log(
-      `Successfully detected page numbers for ${Object.keys(pageNumbers).length}/${totalPages} pages`,
-    );
+    const detectedCount = Object.keys(pageNumbers).length;
+    this.logger.info('detection_complete', {
+      detectedCount,
+      totalPages,
+    });
 
     const sequenceStats = this.summarizeNumberSequence(pageNumbers, totalPages);
     const {
@@ -117,6 +123,7 @@ export class PageNumberStrategy implements BaseOrderingStrategy {
       structuralMap,
       continuationHints,
     } = this.gatherPlacementSignals(pageContents);
+    const initialOrder = this.buildInitialOrder(pageNumbers);
 
     const {
       order,
@@ -125,7 +132,7 @@ export class PageNumberStrategy implements BaseOrderingStrategy {
       anchoredCount,
     } = resolveOrphanPlacements({
       pageContents,
-      initialOrder: this.buildInitialOrder(pageNumbers),
+      initialOrder,
       sequenceSummary,
       structuralMap,
       continuationHints,
@@ -147,6 +154,15 @@ export class PageNumberStrategy implements BaseOrderingStrategy {
       placements,
     });
 
+    this.logOrderingSummary({
+      pageNumbers,
+      initialOrder,
+      finalOrder: order,
+      totalPages,
+      sequenceStats,
+      heuristicCoverage,
+    });
+
     return {
       order,
       confidence: finalConfidence,
@@ -162,6 +178,101 @@ export class PageNumberStrategy implements BaseOrderingStrategy {
         placements,
       },
     };
+  }
+
+
+  private logOrderingSummary({
+    pageNumbers,
+    initialOrder,
+    finalOrder,
+    totalPages,
+    sequenceStats,
+    heuristicCoverage,
+  }: {
+    pageNumbers: Record<number, number>;
+    initialOrder: number[];
+    finalOrder: number[];
+    totalPages: number;
+    sequenceStats: NumberSequenceStats;
+    heuristicCoverage: number;
+  }): void {
+    const formatPage = (pageIndex: number): string => {
+      const num = pageNumbers[pageIndex];
+      return num ? `p${pageIndex + 1}(#${num})` : `p${pageIndex + 1}(no-num)`;
+    };
+
+    const initialLabel = initialOrder.length
+      ? initialOrder.map(formatPage).join(' → ')
+      : 'none';
+
+    const finalLabels = finalOrder.map((pageIndex, position) => {
+      const num = pageNumbers[pageIndex];
+      const numLabel = num ? `#${num}` : 'no-num';
+      return `${position + 1}:p${pageIndex + 1}(${numLabel})`;
+    });
+
+    const statsLine = [
+      `Coverage ${(sequenceStats.coverage * 100).toFixed(1)}%`,
+      `Sequence ${(sequenceStats.sequenceQuality * 100).toFixed(1)}%`,
+      `Heuristic ${(heuristicCoverage * 100).toFixed(1)}%`,
+    ].join(' | ');
+
+    const missing = sequenceStats.missingNumbers.length
+      ? sequenceStats.missingNumbers.join(', ')
+      : 'none';
+    const duplicates = sequenceStats.duplicateNumbers.length
+      ? sequenceStats.duplicateNumbers.join(', ')
+      : 'none';
+
+    this.logger.info('ordering_summary', {
+      stats: {
+        coverage: sequenceStats.coverage,
+        sequenceQuality: sequenceStats.sequenceQuality,
+        heuristicCoverage,
+        totalPages,
+        detectedCount: initialOrder.length,
+      },
+      missingNumbers: sequenceStats.missingNumbers,
+      duplicateNumbers: sequenceStats.duplicateNumbers,
+      initialOrder: initialOrder.map(idx => ({
+        pageIndex: idx,
+        detectedNumber: pageNumbers[idx] ?? null,
+      })),
+      finalOrder: finalOrder.map((pageIndex, position) => ({
+        position: position + 1,
+        pageIndex,
+        detectedNumber: pageNumbers[pageIndex] ?? null,
+      })),
+    });
+
+    this.logger.detail(`Ordering summary — ${statsLine}`);
+    this.logger.detail(`Detected ${initialOrder.length} numbered pages out of ${totalPages}`);
+    this.logger.detail(`Initial (by detected numbers): ${initialLabel}`);
+    this.logger.detail('input_order format: page X -> detected page number (or none)');
+
+    const formatInputOrder = (): string => {
+      const parts: string[] = [];
+      for (let i = 0; i < totalPages; i += 1) {
+        const num = pageNumbers[i];
+        parts.push(`page ${i + 1} -> ${num ?? 'none'}`);
+      }
+      return `[${parts.join(' | ')}]`;
+    };
+
+    const formatOutputOrder = (): string => {
+      const parts = finalOrder.map((pageIndex, position) => {
+        const num = pageNumbers[pageIndex];
+        return `${position + 1}: page ${pageIndex + 1} -> ${num ?? 'none'}`;
+      });
+      return `[${parts.join(' | ')}]`;
+    };
+
+    this.logger.detail(`input_order: ${formatInputOrder()}`);
+    this.logger.detail('output_order format: position: page X -> detected page number (or none)');
+    this.logger.detail(`output_order: ${formatOutputOrder()}`);
+
+    this.logger.detail(`Missing numbers: ${missing}`);
+    this.logger.detail(`Duplicates: ${duplicates}`);
   }
 
 

@@ -76,6 +76,10 @@ export function ThumbnailGrid({ onPageSelect }: ThumbnailGridProps) {
       return;
     }
 
+    let isCancelled = false;
+    let generationInProgress = false;
+    let activeRenderer: PDFRenderer | null = null;
+
     const loadThumbnails = async () => {
       setIsLoading(true);
       try {
@@ -86,6 +90,13 @@ export function ThumbnailGrid({ onPageSelect }: ThumbnailGridProps) {
         // (pdfjs-dist transfers the ArrayBuffer to its worker, detaching it)
         const bytesCopy = new Uint8Array(pdfBytes);
         await pdfRenderer.loadPDF(bytesCopy);
+
+        if (isCancelled) {
+          pdfRenderer.dispose();
+          return;
+        }
+
+        activeRenderer = pdfRenderer;
         rendererRef.current = pdfRenderer;
 
         const pageCount = pdfRenderer.getPageCount();
@@ -93,7 +104,8 @@ export function ThumbnailGrid({ onPageSelect }: ThumbnailGridProps) {
 
         // Generate thumbnails in batches for performance
         const batchSize = 4;
-        for (let i = 0; i < pageCount; i += batchSize) {
+        generationInProgress = true;
+        for (let i = 0; i < pageCount && !isCancelled; i += batchSize) {
           const batch = Array.from(
             { length: Math.min(batchSize, pageCount - i) },
             (_, idx) => i + idx + 1 // 1-based page numbers for pdfjs
@@ -104,6 +116,10 @@ export function ThumbnailGrid({ onPageSelect }: ThumbnailGridProps) {
             quality: 0.8,
             format: 'jpeg',
           });
+
+          if (isCancelled) {
+            break;
+          }
 
           results.forEach((result) => {
             // Store with 0-based index
@@ -116,14 +132,24 @@ export function ThumbnailGrid({ onPageSelect }: ThumbnailGridProps) {
       } catch (error) {
         console.error('Failed to generate thumbnails:', error);
       } finally {
-        setIsLoading(false);
+        generationInProgress = false;
+        if (isCancelled) {
+          activeRenderer?.dispose();
+        }
+        if (!isCancelled) {
+          setIsLoading(false);
+        }
       }
     };
 
     loadThumbnails();
 
     return () => {
-      rendererRef.current?.dispose();
+      isCancelled = true;
+      if (!generationInProgress) {
+        rendererRef.current?.dispose();
+      }
+      rendererRef.current = null;
     };
   }, [pdfBytes]);
 
@@ -373,8 +399,8 @@ export function ThumbnailGrid({ onPageSelect }: ThumbnailGridProps) {
               >
                 <ChevronLeft className="h-5 w-5" />
               </button>
-              <DialogClose className="absolute -top-12 left-0 z-50 rounded-full bg-gray-100 p-2 text-gray-700 border border-gray-300 transition hover:bg-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400">
-                <X className="h-3 w-3" />
+              <DialogClose className="absolute top-4 -left-12 z-50 rounded-none bg-gray-100 p-2 text-gray-700 border border-gray-300 transition hover:bg-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400">
+                <X className="h-4 w-4" />
                 <span className="sr-only">Close preview</span>
               </DialogClose>
               {previewImage ? (

@@ -17,6 +17,7 @@ import { PageNumberStrategy } from './pageNumbers';
 import { StructuralPatternStrategy } from './structure';
 
 // Import the configuration
+import { createLogger } from '../logging';
 import docRules from '../../config/docRules.json';
 
 /**
@@ -26,6 +27,7 @@ export class HeuristicsOrchestrator {
   private config: OrchestratorConfig;
   private strategies: Map<string, BaseOrderingStrategy> = new Map();
   private documentConfig: DocumentConfig;
+  private logger = createLogger('HeuristicsOrchestrator', { structured: false });
 
   constructor(config: Partial<OrchestratorConfig> = {}) {
     this.config = {
@@ -84,7 +86,11 @@ export class HeuristicsOrchestrator {
       order: number[];
     }> = [];
 
-    console.log(`\nRunning ${enabledStrategies.length} heuristics strategies...`);
+    this.logger.section('Heuristics orchestrator');
+    this.logger.info(
+      `Running ${enabledStrategies.length} heuristic strategy(ies)`,
+      enabledStrategies.map((strategy) => strategy.name).join(', '),
+    );
 
     // Run each enabled strategy
     for (const strategyConfig of enabledStrategies) {
@@ -92,16 +98,16 @@ export class HeuristicsOrchestrator {
       const strategy = this.strategies.get(strategyName);
 
       if (!strategy) {
-        console.warn(`Strategy '${strategyName}' not initialized`);
+        this.logger.warn(`Strategy '${strategyName}' not initialized`);
         continue;
       }
 
       if (!strategy.canHandle(pageContents)) {
-        console.log(`Strategy '${strategyName}' cannot handle these pages`);
+        this.logger.info(`Skipping '${strategyName}' (cannot handle these pages)`);
         continue;
       }
 
-      console.log(`\n--- Running ${strategyName} strategy ---`);
+      this.logger.info(`Running '${strategyName}' strategy...`);
       const result = await strategy.attemptOrdering(pageContents);
 
       strategyResults[strategyName] = result;
@@ -112,7 +118,21 @@ export class HeuristicsOrchestrator {
         order: result.order,
       });
 
-      console.log(`${strategyName} confidence: ${result.confidence.toFixed(3)}`);
+      this.logger.info(
+        `Result '${strategyName}'`,
+        `confidence ${result.confidence.toFixed(3)}, order preview: ${result.order.slice(0, 10).join(', ')}`,
+      );
+
+      if (
+        strategyName === 'page_numbers'
+        && result.confidence >= 0.8
+      ) {
+        this.logger.success(
+          "Page numbers confident; skipping remaining strategies",
+          `confidence ${result.confidence.toFixed(3)}`,
+        );
+        break;
+      }
     }
 
     // Select the best strategy
@@ -131,7 +151,10 @@ export class HeuristicsOrchestrator {
       selectedConfidence: comparison.winningConfidence,
     };
 
-    console.log(`\nSelected strategy: ${comparison.winner} (confidence: ${comparison.winningConfidence.toFixed(3)})`);
+    this.logger.success(
+      `Selected strategy: ${comparison.winner}`,
+      `confidence ${comparison.winningConfidence.toFixed(3)}, time ${processingTimeMs}ms, evaluated ${strategyComparisons.length}`,
+    );
 
     return {
       finalResult: {
