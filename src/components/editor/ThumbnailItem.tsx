@@ -11,8 +11,6 @@ interface ThumbnailItemProps {
   originalIndex: number;
   thumbnail: string | null;
   isSelected: boolean;
-  detectedPageNum: number | null;
-  confidence: number;
   onClick: (e: React.MouseEvent) => void;
   onDoubleClick?: (e: React.MouseEvent) => void;
 }
@@ -23,8 +21,6 @@ export function ThumbnailItem({
   originalIndex,
   thumbnail,
   isSelected,
-  detectedPageNum,
-  confidence,
   onClick,
   onDoubleClick,
 }: ThumbnailItemProps) {
@@ -40,13 +36,6 @@ export function ThumbnailItem({
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-  };
-
-  // Determine confidence badge color
-  const getConfidenceBadgeColor = (conf: number) => {
-    if (conf >= 0.8) return 'bg-green-500/20 text-green-400 border-green-500/30';
-    if (conf >= 0.6) return 'bg-amber-500/20 text-amber-400 border-amber-500/30';
-    return 'bg-red-500/20 text-red-400 border-red-500/30';
   };
 
   return (
@@ -108,29 +97,14 @@ export function ThumbnailItem({
           <span className="text-xs font-medium text-white">
             #{orderIndex + 1}
           </span>
+        </div>
 
-          {/* Original page number */}
-          <span className="text-xs text-slate-400">
+        {/* Original page number badge */}
+        <div className="mt-1 flex items-center justify-between">
+          <span className="text-xs px-1.5 py-0.5 rounded border border-slate-600 bg-slate-900/60 text-slate-300">
             (was {originalIndex + 1})
           </span>
         </div>
-
-        {/* Detected page number badge */}
-        {detectedPageNum !== null && (
-          <div className="mt-1 flex items-center justify-between">
-            <span
-              className={cn(
-                'text-xs px-1.5 py-0.5 rounded border',
-                getConfidenceBadgeColor(confidence)
-              )}
-            >
-              Page {detectedPageNum}
-            </span>
-            <span className="text-[10px] text-slate-500">
-              {Math.round(confidence * 100)}%
-            </span>
-          </div>
-        )}
       </div>
     </div>
   );

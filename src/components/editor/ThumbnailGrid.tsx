@@ -275,7 +275,7 @@ export function ThumbnailGrid({ onPageSelect }: ThumbnailGridProps) {
     ? previewMeta.orderIndex < pageOrder.length - 1
     : false;
   const navButtonBase =
-    'absolute top-1/2 -translate-y-1/2 z-50 bg-green-500 text-white hover:bg-green-600 border-green-500 shadow-xl p-3 m-0 border-0';
+    'absolute top-1/2 -translate-y-1/2 z-50 bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300 shadow-md p-2 transition-opacity';
 
   if (isLoading && thumbnails.size === 0) {
     return (
@@ -326,8 +326,6 @@ export function ThumbnailGrid({ onPageSelect }: ThumbnailGridProps) {
                   originalIndex={pageIndex}
                   thumbnail={thumbnail || null}
                   isSelected={isSelected}
-                  detectedPageNum={page?.detectedPageNum || null}
-                  confidence={page?.confidence || 0}
                   onClick={(e) => handlePageClick(orderIndex, e)}
                   onDoubleClick={(e) => handlePreviewRequest(orderIndex, e)}
                 />
@@ -371,12 +369,12 @@ export function ThumbnailGrid({ onPageSelect }: ThumbnailGridProps) {
                 onClick={handlePreviousPreview}
                 disabled={!canShowPrevious}
                 aria-label="Previous page"
-                className={`${navButtonBase} left-0 rounded-r-none`}
+                className={`${navButtonBase} -left-12 rounded-none`}
               >
-                <ChevronLeft className="h-6 w-6" />
+                <ChevronLeft className="h-5 w-5" />
               </button>
-              <DialogClose className="absolute left-0 top-0 z-50 rounded-full bg-red-500 p-3 text-white transition hover:bg-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 m-0">
-                <X className="h-4 w-4" />
+              <DialogClose className="absolute -top-12 left-0 z-50 rounded-full bg-gray-100 p-2 text-gray-700 border border-gray-300 transition hover:bg-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400">
+                <X className="h-3 w-3" />
                 <span className="sr-only">Close preview</span>
               </DialogClose>
               {previewImage ? (
@@ -413,9 +411,9 @@ export function ThumbnailGrid({ onPageSelect }: ThumbnailGridProps) {
                 onClick={handleNextPreview}
                 disabled={!canShowNext}
                 aria-label="Next page"
-                className={`${navButtonBase} right-0 rounded-l-none`}
+                className={`${navButtonBase} -right-12 rounded-none`}
               >
-                <ChevronRight className="h-6 w-6" />
+                <ChevronRight className="h-5 w-5" />
               </button>
             </div>
           </div>
