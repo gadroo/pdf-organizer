@@ -171,6 +171,7 @@ async function extractPageContents(
           pageHeight: page.pageHeight || null,
           pageWidth: page.pageWidth || null,
           headerFooterSource: 'azure-bbox',
+          wordLayouts: page.wordLayouts || [],
         },
       }));
     }

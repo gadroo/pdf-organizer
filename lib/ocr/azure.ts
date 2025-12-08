@@ -31,6 +31,14 @@ export interface AzurePageResult {
     boundingBox: number[];
     confidence: number;
   }>;
+  /**
+   * Normalized word layout (0-1 range) for positional heuristics
+   */
+  wordLayouts?: Array<{
+    text: string;
+    avgX: number;
+    avgY: number;
+  }>;
   confidence: number;
   analysisTime: number;
   fromCache?: boolean;
@@ -240,54 +248,6 @@ export class AzureOCRClient {
   }
 
   /**
-   * Test Azure connection
-   */
-  public async testConnection(): Promise<{
-    success: boolean;
-    error?: string;
-    analysisTime?: number;
-  }> {
-    if (!this.endpoint || !this.key) {
-      return {
-        success: false,
-        error: 'Azure credentials not configured. Set AZURE_FORM_RECOGNIZER_ENDPOINT and AZURE_FORM_RECOGNIZER_KEY environment variables.',
-      };
-    }
-
-    const startTime = Date.now();
-
-    try {
-      // Test with a simple API call to check connectivity
-      const response = await fetch(`${this.endpoint}/formrecognizer/documentModels?api-version=2023-07-31`, {
-        method: 'GET',
-        headers: {
-          'Ocp-Apim-Subscription-Key': this.key,
-        },
-      });
-
-      if (response.ok) {
-        return {
-          success: true,
-          analysisTime: Date.now() - startTime,
-        };
-      } else {
-        const errorText = await response.text();
-        return {
-          success: false,
-          error: `Azure API error: ${response.status} - ${errorText}`,
-          analysisTime: Date.now() - startTime,
-        };
-      }
-    } catch (error) {
-      return {
-        success: false,
-        error: `Connection failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        analysisTime: Date.now() - startTime,
-      };
-    }
-  }
-
-  /**
    * Extract retry-after time from Azure error response
    */
   private parseRetryAfter(errorText: string): number {
@@ -494,11 +454,37 @@ export class AzureOCRClient {
     
     console.log(`[Azure OCR] Page ${pageNumber} completed in ${analysisTime}ms - ${words.length} words`);
 
+    const normalizedWordLayouts = words
+      .map((word) => {
+        const box = word.boundingBox || [];
+        if (!box || box.length < 4) return null;
+        let sumX = 0;
+        let sumY = 0;
+        let count = 0;
+        for (let i = 0; i < box.length; i += 2) {
+          const x = box[i];
+          const y = box[i + 1];
+          if (typeof x === 'number' && typeof y === 'number' && !Number.isNaN(x) && !Number.isNaN(y)) {
+            sumX += x;
+            sumY += y;
+            count += 1;
+          }
+        }
+        if (!count || !headerFooterInfo.pageHeight || !headerFooterInfo.pageWidth) return null;
+        return {
+          text: word.text,
+          avgX: (sumX / count) / headerFooterInfo.pageWidth,
+          avgY: (sumY / count) / headerFooterInfo.pageHeight,
+        };
+      })
+      .filter((item): item is { text: string; avgX: number; avgY: number } => !!item);
+
     return {
       pageNumber,
       content,
       lines,
       words,
+      wordLayouts: normalizedWordLayouts,
       confidence: words.length > 0 ? 0.9 : 0.1,
       analysisTime,
       fromCache: false,
@@ -593,8 +579,9 @@ export class AzureOCRClient {
       };
     };
 
-    const headerCutoffRatio = 0.18;
-    const footerCutoffRatio = 0.82;
+    // Widened bands to capture mid-top/mid-bottom numbers
+    const headerCutoffRatio = 0.30;
+    const footerCutoffRatio = 0.70;
     const headerWords: Array<{ text: string; avgX: number; avgY: number }> = [];
     const footerWords: Array<{ text: string; avgX: number; avgY: number }> = [];
 
@@ -734,6 +721,75 @@ export class AzureOCRClient {
   }
 
   /**
+   * Normalize word positions to 0-1 range for downstream heuristics
+   */
+  private buildNormalizedLayouts(
+    words: Array<{ text: string; boundingBox: number[] }>,
+    pageWidth?: number,
+    pageHeight?: number,
+  ): Array<{ text: string; avgX: number; avgY: number }> {
+    if (!words || !pageWidth || !pageHeight) return [];
+    return words
+      .map((word) => {
+        const box = word.boundingBox || [];
+        if (!box || box.length < 4) return null;
+        let sumX = 0;
+        let sumY = 0;
+        let count = 0;
+        for (let i = 0; i < box.length; i += 2) {
+          const x = box[i];
+          const y = box[i + 1];
+          if (typeof x === 'number' && typeof y === 'number' && !Number.isNaN(x) && !Number.isNaN(y)) {
+            sumX += x;
+            sumY += y;
+            count += 1;
+          }
+        }
+        if (!count) return null;
+        return {
+          text: word.text,
+          avgX: (sumX / count) / pageWidth,
+          avgY: (sumY / count) / pageHeight,
+        };
+      })
+      .filter((item): item is { text: string; avgX: number; avgY: number } => !!item);
+  }
+
+  /**
+   * Ensure cached pages have normalized layouts and refreshed header/footer text using current thresholds
+   */
+  private ensureLayoutAndHeaders(pageResult: AzurePageResult): AzurePageResult {
+    const pageData: AzureAnalyzePage = {
+      height: pageResult.pageHeight,
+      width: pageResult.pageWidth,
+      words: (pageResult.words || []).map((w) => ({
+        content: w.text,
+        boundingBox: w.boundingBox,
+        confidence: w.confidence,
+      })),
+    };
+
+    // Recompute header/footer with current cutoffs
+    const headerFooterInfo = this.extractHeaderFooterText(pageData, pageResult.words || []);
+    const normalizedWordLayouts = this.buildNormalizedLayouts(
+      pageResult.words || [],
+      headerFooterInfo.pageWidth,
+      headerFooterInfo.pageHeight,
+    );
+
+    return {
+      ...pageResult,
+      headerText: headerFooterInfo.headerText,
+      footerText: headerFooterInfo.footerText,
+      headerWordCount: headerFooterInfo.headerWordCount,
+      footerWordCount: headerFooterInfo.footerWordCount,
+      pageHeight: headerFooterInfo.pageHeight,
+      pageWidth: headerFooterInfo.pageWidth,
+      wordLayouts: normalizedWordLayouts,
+    };
+  }
+
+  /**
    * Analyze PDF with Azure OCR - page by page with caching
    */
   async analyzePDF(request: OCRRequest): Promise<AzureAnalysisResult> {
@@ -782,7 +838,7 @@ export class AzureOCRClient {
           const cached = ocrCache.get(cacheKey);
           if (cached) {
             console.log(`[Azure OCR] Page ${pageNumber} - CACHE HIT ✓`);
-            pages.push({ ...cached, pageNumber });
+            pages.push(this.ensureLayoutAndHeaders({ ...cached, pageNumber }));
             cacheHits++;
             continue;
           }
@@ -812,7 +868,7 @@ export class AzureOCRClient {
             console.log(`[Azure OCR] Page ${pageNumber} - Cached ✓`);
           }
 
-          pages.push(pageResult);
+          pages.push(this.ensureLayoutAndHeaders(pageResult));
         } catch (pageError) {
           console.error(`[Azure OCR] Page ${pageNumber} failed:`, pageError);
           pages.push({
@@ -881,81 +937,11 @@ export class AzureOCRClient {
   }
 
   /**
-   * Get client configuration
-   */
-  getConfig(): AzureOCRConfig {
-    return { ...this.config };
-  }
-
-  /**
-   * Update client configuration
-   */
-  updateConfig(newConfig: Partial<AzureOCRConfig>): void {
-    this.config = { ...this.config, ...newConfig };
-    if (newConfig.endpoint) this.endpoint = newConfig.endpoint;
-    if (newConfig.key) this.key = newConfig.key;
-    if (newConfig.modelId) this.modelId = newConfig.modelId;
-  }
-
-  /**
    * Check if client is ready (has credentials)
    */
   isReady(): boolean {
     return Boolean(this.endpoint && this.key);
   }
 
-  /**
-   * Clear the OCR cache
-   */
-  clearCache(): void {
-    ocrCache.clear();
-  }
-
-  /**
-   * Dispose of resources
-   */
-  dispose(): void {
-    // No cleanup needed
-  }
-}
-
-/**
- * Default OCR client instance
- */
-export const defaultAzureOCRClient = new AzureOCRClient();
-
-/**
- * Utility function to analyze PDF with Azure
- */
-export async function analyzePDFWithAzure(
-  file: File,
-  config?: Partial<AzureOCRConfig>
-): Promise<AzureAnalysisResult> {
-  const client = new AzureOCRClient(config);
-
-  try {
-    return await client.analyzePDF({ file });
-  } finally {
-    client.dispose();
-  }
-}
-
-/**
- * Utility function to test Azure connection
- */
-export async function testAzureConnection(config?: Partial<AzureOCRConfig>): Promise<{ 
-  success: boolean; 
-  error?: string; 
-  analysisTime?: number 
-}> {
-  const client = new AzureOCRClient(config);
-  return client.testConnection();
-}
-
-/**
- * Clear all cached OCR results
- */
-export function clearOCRCache(): void {
-  ocrCache.clear();
 }
 

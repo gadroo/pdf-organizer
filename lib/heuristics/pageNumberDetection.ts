@@ -9,6 +9,8 @@ export interface ExplicitDetectionResult {
 
 type DetectionLogger = (message: string) => void;
 
+type WordLayout = { text: string; avgX: number; avgY: number };
+
 type CandidateRegion =
   | { region: 'header'; content: string; priority: number }
   | { region: 'footer'; content: string; priority: number }
@@ -20,6 +22,10 @@ export function detectExplicitPageNumbers(
   patterns: string[],
   log: DetectionLogger = () => {},
 ): ExplicitDetectionResult {
+  // Prefer positional header/footer isolation first
+  const positional = detectHeaderFooterIsolated(pageContents, patterns, log);
+  if (positional) return positional;
+
   const pageNumbers: Record<number, number> = {};
   const patternMatches: PatternMatchesByPage = {};
 
@@ -81,6 +87,93 @@ export function detectExplicitPageNumbers(
     }
   }
 
+  return { pageNumbers, patternMatches };
+}
+
+function detectHeaderFooterIsolated(
+  pageContents: PageContent[],
+  patterns: string[],
+  log: DetectionLogger,
+): ExplicitDetectionResult | null {
+  const pageNumbers: Record<number, number> = {};
+  const patternMatches: PatternMatchesByPage = {};
+  let coverage = 0;
+
+  const topBandMax = 0.15;
+  const bottomBandMin = 0.85;
+  const neighborRadius = 0.05; // normalized distance for isolation check
+
+  const matchWord = (word: string): number | null => {
+    for (const pattern of patterns) {
+      try {
+        const matches = findAllPatternMatches(pattern, word);
+        if (matches.length) {
+          const parsed = Number.parseInt(matches[0], 10);
+          if (!Number.isNaN(parsed)) {
+            return parsed;
+          }
+        }
+      } catch (error) {
+        console.error(`Invalid regex pattern '${pattern}':`, error);
+      }
+    }
+    return null;
+  };
+
+  pageContents.forEach((page) => {
+    const layouts = (page.metadata as any)?.wordLayouts as WordLayout[] | undefined;
+    if (!layouts || !layouts.length) return;
+
+    const candidates = layouts
+      .map((w, idx) => {
+        const num = matchWord(w.text);
+        if (num === null) return null;
+        const inTop = w.avgY <= topBandMax;
+        const inBottom = w.avgY >= bottomBandMin;
+        if (!inTop && !inBottom) return null;
+
+        // Isolation: count neighbors within radius
+        let neighbors = 0;
+        for (let j = 0; j < layouts.length; j++) {
+          if (j === idx) continue;
+          const other = layouts[j];
+          const dx = Math.abs(other.avgX - w.avgX);
+          const dy = Math.abs(other.avgY - w.avgY);
+          if (dx <= neighborRadius && dy <= neighborRadius) {
+            neighbors += 1;
+          }
+        }
+
+        const edgeDistance = inTop ? w.avgY : 1 - w.avgY; // closer to edge preferred
+        return { num, text: w.text, y: w.avgY, edgeDistance, neighbors };
+      })
+      .filter((c): c is { num: number; text: string; y: number; edgeDistance: number; neighbors: number } => !!c)
+      .sort((a, b) => {
+        // Prefer more isolated, then closer to edge
+        if (a.neighbors !== b.neighbors) return a.neighbors - b.neighbors;
+        return a.edgeDistance - b.edgeDistance;
+      });
+
+    if (!candidates.length) return;
+
+    const best = candidates[0];
+    pageNumbers[page.index] = best.num;
+    page.detectedPageNum = best.num;
+    patternMatches[page.index] = {
+      pageIndex: page.index,
+      pageNumber: best.num,
+      confidence: 0.9,
+      pattern: escapeRegexForDisplay('header-footer-isolated'),
+      fullTextSample: best.text,
+      region: best.y <= topBandMax ? 'header' : 'footer',
+    };
+    coverage += 1;
+    log(
+      `Page ${page.index + 1}: Isolated header/footer -> number ${best.num} (neighbors=${best.neighbors}, y=${best.y.toFixed(2)})`,
+    );
+  });
+
+  if (coverage === 0) return null;
   return { pageNumbers, patternMatches };
 }
 
